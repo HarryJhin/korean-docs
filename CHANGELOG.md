@@ -47,8 +47,8 @@
 - `/korean-docs` 워크플로우 — 리서치·사실검증·문체교정·자연스러움 검증 파이프라인
 - `write-korean-docs` pre-flight 스킬(트리거·비용 경고)
 
-[Unreleased]: https://github.com/HarryJhin/korean-docs/compare/korean-docs--v0.1.3...HEAD
-[0.1.3]: https://github.com/HarryJhin/korean-docs/compare/korean-docs--v0.1.2...korean-docs--v0.1.3
-[0.1.2]: https://github.com/HarryJhin/korean-docs/compare/korean-docs--v0.1.1...korean-docs--v0.1.2
-[0.1.1]: https://github.com/HarryJhin/korean-docs/compare/korean-docs--v0.1.0...korean-docs--v0.1.1
-[0.1.0]: https://github.com/HarryJhin/korean-docs/releases/tag/korean-docs--v0.1.0
+[Unreleased]: https://github.com/HarryJhin/korean-docs/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/HarryJhin/korean-docs/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/HarryJhin/korean-docs/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/HarryJhin/korean-docs/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/HarryJhin/korean-docs/releases/tag/v0.1.0
