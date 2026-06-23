@@ -1,6 +1,6 @@
 export const meta = {
   name: 'korean-docs',
-  description: '주제·소스로부터 한글 기술 레퍼런스 문서(.md)를 생성 — 리서치·사실검증·문체교정·자연스러움 검증 파이프라인',
+  description: '주제·소스로부터 한글 기술 레퍼런스 문서(.md)를 생성 — 리서치·사실검증·문체교정·자연스러움 검증 파이프라인 (자기완결: 외부 에이전트·스킬 불요)',
   phases: [
     { title: '스코프' },
     { title: '리서치' },
@@ -12,17 +12,25 @@ export const meta = {
   ],
 }
 
-const req = typeof args === 'string' ? { topic: args } : (args || {})
+// args 허용 형태: 객체 { topic, docType?, source?, audience?, tone? } / topic 문자열 / 그 둘의 JSON 문자열.
+let input = args
+if (typeof input === 'string') {
+  const s = input.trim()
+  if (s.startsWith('{')) { try { input = JSON.parse(s) } catch { input = { topic: s } } }
+  else { input = { topic: s } }
+}
+const req = input || {}
 const topic = (req.topic || '').trim()
 const docType = req.docType || 'reference'
 if (!topic) throw new Error('args.topic 필요 (생성할 문서 주제)')
 
 // ── 인라인 스키마 (런타임 자기완결) ──
 const OUTLINE_SCHEMA = {
-  type: 'object', required: ['docType', 'audience', 'sections'],
+  type: 'object', required: ['docType', 'audience', 'tone', 'sections'],
   properties: {
     docType: { type: 'string', enum: ['reference', 'how-to', 'tutorial', 'explanation'] },
     audience: { type: 'string' },
+    tone: { type: 'string' },
     sections: { type: 'array', items: { type: 'object', required: ['title', 'researchQuestions'],
       properties: { title: { type: 'string' }, researchQuestions: { type: 'array', items: { type: 'string' } } } } },
   },
@@ -36,25 +44,48 @@ const SECTION_SCHEMA = { type: 'object', required: ['title', 'markdown'],
 const NATURALNESS_VERDICT_SCHEMA = { type: 'object', required: ['pass', 'fidelityOk', 'issues'],
   properties: { pass: { type: 'boolean' }, fidelityOk: { type: 'boolean' }, issues: { type: 'array', items: { type: 'string' } } } }
 
+// ── 인라인 문체 기준 (한국 번역학 계보 + im-not-ai(MIT) + KatFishNet(ACL 2025) 근거) ──
+const PROSE_RULES =
+  '- S1(무조건 제거): em dash(—), 이모지, 산문 속 세미콜론, 이중 피동(되어진다/지게 된다).\n' +
+  '- 번역투: "~에 의해 / ~를 통해 / ~에 대해", 과한 명사화("~에 대한 처리를 수행")를 동사형으로 푼다.\n' +
+  '- 존댓말 어미는 한 문서에서 한 등급으로 일관되게 유지한다.\n' +
+  '- 가능성 표현("~할 수 있다") 남발을 단정형으로 바꾼다.\n' +
+  '- 영어 관습 전이 회피: 불필요한 주어(우리는/이것은), rule of three 강박, "단순히 X가 아니라 Y" 대구.\n' +
+  '- 사실·수치·고유명사·코드 블록·인용 표기[n]은 100% 보존한다. 날조 금지 — 근거 없으면 채우지 말고 삭제한다.'
+
+// ── 인라인 구성·마크다운 규칙 (레퍼런스 유형) ──
+const MARKDOWN_RULES =
+  '- 제목 계층: 문서 H1과 섹션 제목 H2는 조립 단계가 붙인다. 본문은 항목 제목 H3(###)부터 시작하고, 섹션 H2·문서 H1·중복 섹션 제목을 넣지 마라.\n' +
+  '- 코드·시그니처는 펜스 코드블록(```lang)으로, 인라인 식별자는 백틱(`name`)으로.\n' +
+  '- 파라미터·옵션·반환값은 표로 정리: | 이름 | 타입 | 기본값 | 설명 |.\n' +
+  '- 각 항목 구성: 시그니처 → 한 줄 요약 → (파라미터 표) → 반환 → 예시 → 에러.\n' +
+  '- 장식용 이모지·과한 볼드·수평선(---) 금지. 분량은 항목당 핵심만, 도입·요약 문단 없이 본론부터.'
+
 // ── 1. 스코프 ──
 phase('스코프')
 const outline = await agent(
-  `한글 기술 문서를 작성하기 위한 아웃라인을 설계한다.\n` +
-  `주제: ${topic}\n문서 유형: ${docType} (Diátaxis 레퍼런스 — API/설정/CLI의 정확한 스펙 기술)\n` +
+  `너는 기술 문서 설계자다. 목표: 독자가 빠르게 정확한 답을 찾는 레퍼런스 구조를 설계한다.\n` +
+  `주제: ${topic}\n문서 유형: ${docType} (Diátaxis 레퍼런스 — API/설정/CLI의 정확한 스펙)\n` +
   (req.source ? `참고 소스:\n${req.source}\n` : '') +
-  `레퍼런스 문서의 필수 섹션(개요, 항목별 레퍼런스, 에러/예외)을 포함하고, ` +
-  `각 섹션마다 사실 확인이 필요한 리서치 질문을 1~4개 만든다. 한국어로.`,
+  (req.audience ? `지정 독자: ${req.audience}\n` : '') +
+  (req.tone ? `지정 톤앤매너: ${req.tone}\n` : '') +
+  `다음을 정한다:\n` +
+  `- audience: 이 문서를 읽는 구체적 독자(지정값이 있으면 그대로). 예: "REST API를 처음 쓰는 백엔드 개발자"\n` +
+  `- tone: 톤앤매너(지정값이 있으면 그대로). 예: "간결하고 중립적인 레퍼런스체, 군더더기 없이"\n` +
+  `- sections: 필수 섹션(개요, 항목별 레퍼런스, 에러/예외)과 각 섹션의 리서치 질문 1~4개`,
   { schema: OUTLINE_SCHEMA, label: 'scope:outline' }
 )
 const sections = outline.sections || []
-log(`아웃라인 ${sections.length}개 섹션`)
+const audience = (req.audience || outline.audience || '기술 실무자').trim()
+const tone = (req.tone || outline.tone || '간결하고 정확한 레퍼런스체').trim()
+log(`아웃라인 ${sections.length}개 섹션 · 독자: ${audience}`)
 
 // ── 2~3. 섹션별 리서치 → 사실 적대 검증 (pipeline, 배리어 없음) ──
 const researched = await pipeline(
   sections,
   (section) => agent(
-    `다음 리서치 질문들에 대해 웹·공식 문서를 조사해 사실을 수집한다. ` +
-    `각 사실에 출처 URL을 단다. 확인 안 되면 포함하지 말 것(날조 금지).\n` +
+    `너는 기술 사실 조사자다. 목표: 검증 가능한 출처로 뒷받침되는 사실만 모은다.\n` +
+    `다음 리서치 질문들에 대해 웹·공식 문서를 조사해 사실을 수집한다. 각 사실에 출처 URL을 단다. 확인 안 되면 포함하지 말 것(날조 금지).\n` +
     `섹션: ${section.title}\n질문:\n${(section.researchQuestions || []).map(q => '- ' + q).join('\n')}`,
     { schema: FACT_SCHEMA, label: `research:${section.title}`, phase: '리서치' }
   ).then(r => ({ section, facts: r.facts || [] })),
@@ -62,13 +93,15 @@ const researched = await pipeline(
     const verified = []
     for (const fact of r.facts) {
       // Workflow 런타임 계약: parallel은 실패한 thunk(agent 오류 포함)를 null로 resolve하며
-      // 절대 reject하지 않는다. 따라서 verifier 하나가 실패해도 파이프라인이 중단되지 않고,
+      // 절대 reject하지 않는다. 따라서 검증자 하나가 실패해도 파이프라인이 중단되지 않고,
       // 아래 votes.filter(Boolean)가 실패 표를 제외한다(부분 결과 + 정족수 판정 유지).
       const votes = await parallel([0, 1, 2].map(i => () =>
         agent(
-          `다음 주장이 출처에 의해 뒷받침되는지 적대적으로 검증한다. 불확실하면 verified=false.\n` +
+          `너는 기술 문서 사실 검증자다. 목표: 출처가 주장을 실제로 뒷받침하는지 적대적으로 가린다.\n` +
+          `시그니처·파라미터·기본값·버전 같은 기술적 사실은 특히 엄격히 본다. ` +
+          `출처에서 직접 확인되지 않으면 verified=false. 불확실하면 기각이 기본값이다.\n` +
           `주장: ${fact.claim}\n출처: ${fact.source}`,
-          { schema: FACT_VERDICT_SCHEMA, label: `verify:${r.section.title}#${i}`, phase: '사실 검증', agentType: 'fact-verifier' }
+          { schema: FACT_VERDICT_SCHEMA, label: `verify:${r.section.title}#${i}`, phase: '사실 검증' }
         )
       ))
       if (votes.filter(Boolean).filter(v => v.verified).length >= 2) verified.push(fact)
@@ -78,30 +111,49 @@ const researched = await pipeline(
   }
 )
 
+// ── 전역 인용 번호 부여 (논문식 [n] 인용 + 출처 목록) ──
+const valid = researched.filter(Boolean)
+const sourceList = []
+const sourceNum = new Map()
+for (const r of valid) {
+  for (const f of r.facts) {
+    const u = (f.source || '').trim()
+    if (u && !sourceNum.has(u)) sourceNum.set(u, sourceList.push(u)) // push 반환값 = 1-based 번호
+  }
+}
+const cite = (src) => sourceNum.get((src || '').trim()) || '?'
+
 // ── 4~6. 섹션별 초안 → 문체교정 → 자연스러움 검증 (pipeline) ──
 const finished = await pipeline(
-  researched.filter(Boolean),
+  valid,
   (r) => agent(
-    `확정된 사실만으로 한글 기술 문서의 '${r.section.title}' 섹션을 작성한다(Markdown). ` +
-    `레퍼런스 톤: 정확하고 간결. 사실에 없는 내용 추가 금지. 사실이 부족한 부분은 '출처 필요'로 표시.\n` +
-    `확정 사실:\n${r.facts.map(f => `- ${f.claim} (출처: ${f.source})`).join('\n') || '(없음)'}`,
+    `너는 기술 문서 작가다. 목표: 아래 독자에게 지정 톤으로, 확정 사실만으로 정확·명료한 섹션을 쓴다.\n` +
+    `독자: ${audience}\n톤앤매너: ${tone}\n` +
+    `구성·마크다운 규칙:\n${MARKDOWN_RULES}\n` +
+    `인용: 사실을 본문에 쓸 때 해당 출처 번호를 [n] 형태로 문장 끝에 단다(예: "기본값은 0이다 [2]"). 출처 목록·참고문헌은 본문에 만들지 마라 — [n] 인라인 인용만 달고, 출처 목록은 조립 단계가 붙인다.\n` +
+    `사실에 없는 내용 추가 금지. 부족하면 '출처 필요'로 표시.\n` +
+    `섹션 제목: ${r.section.title}\n확정 사실(번호=출처):\n${r.facts.map(f => `- [${cite(f.source)}] ${f.claim} (출처: ${f.source})`).join('\n') || '(없음)'}`,
     { schema: SECTION_SCHEMA, label: `draft:${r.section.title}`, phase: '초안' }
   ).then(s => ({ ...r, draft: s })),
   (r) => agent(
-    `다음 한글 섹션을 교정한다. 사실·수치·고유명사·코드는 100% 보존(날조 금지).\n\n${r.draft.markdown}`,
-    { schema: SECTION_SCHEMA, label: `prose:${r.section.title}`, phase: '문체 교정', agentType: 'prose-editor' }
+    `너는 한국어 기술문서 에디터다. 목표: 아래 독자·톤을 유지하며 한국어 문체를 교정한다.\n` +
+    `독자: ${audience}\n톤앤매너: ${tone}\n기준:\n${PROSE_RULES}\n교정된 본문 Markdown만 반환한다 — 변경 내역·설명·메모를 본문에 넣지 마라.\n\n${r.draft.markdown}`,
+    { schema: SECTION_SCHEMA, label: `prose:${r.section.title}`, phase: '문체 교정' }
   ).then(s => ({ ...r, edited: s })),
   async (r) => {
     const review = await agent(
-      `다음 한글 기술문서 섹션을 검토한다. 자연스러움(pass)과 사실 충실도(fidelityOk)를 판정한다.\n` +
-      `원 사실:\n${r.facts.map(f => '- ' + f.claim).join('\n') || '(없음)'}\n\n섹션:\n${r.edited.markdown}`,
-      { schema: NATURALNESS_VERDICT_SCHEMA, label: `review:${r.section.title}`, phase: '자연스러움 검증', agentType: 'naturalness-reviewer' }
+      `너는 한국어 자연스러움 리뷰어다. 세 가지를 판정한다. ` +
+      `(1) 자연스러움: "이 글이 왜 아직도 AI처럼 읽히나?" 남은 신호(균일한 리듬, 의견 부재, 기계적 전환어, 번역투)를 issues로 적는다. ` +
+      `(2) 독자·톤 적합: '${audience}'에게 '${tone}' 톤으로 적절한지 본다. ` +
+      `(3) 사실 충실도: 교정 과정에서 원 사실이 왜곡·날조됐는지, 인용 [n]이 보존됐는지 확인해 fidelityOk를 정한다. ` +
+      `(1)·(2)가 모두 만족이면 pass=true.\n` +
+      `원 사실:\n${r.facts.map(f => `- [${cite(f.source)}] ${f.claim}`).join('\n') || '(없음)'}\n\n섹션:\n${r.edited.markdown}`,
+      { schema: NATURALNESS_VERDICT_SCHEMA, label: `review:${r.section.title}`, phase: '자연스러움 검증' }
     )
     if (review.pass && review.fidelityOk) return { title: r.section.title, markdown: r.edited.markdown }
     const fixed = await agent(
-      `아래 지적을 반영해 섹션을 다시 쓴다. 사실 보존, 날조 금지.\n` +
-      `지적:\n${(review.issues || []).map(x => '- ' + x).join('\n')}\n\n섹션:\n${r.edited.markdown}`,
-      { schema: SECTION_SCHEMA, label: `prose-redo:${r.section.title}`, phase: '문체 교정', agentType: 'prose-editor' }
+      `아래 지적을 반영해 섹션을 다시 쓴다. 독자(${audience})·톤(${tone}) 유지, 문체 기준 유지, 사실·인용[n] 보존, 날조 금지. 교정된 본문만 반환(변경 내역·설명 금지).\n${PROSE_RULES}\n\n지적:\n${(review.issues || []).map(x => '- ' + x).join('\n')}\n\n섹션:\n${r.edited.markdown}`,
+      { schema: SECTION_SCHEMA, label: `prose-redo:${r.section.title}`, phase: '문체 교정' }
     )
     return { title: r.section.title, markdown: fixed.markdown }
   }
@@ -113,22 +165,17 @@ const ordered = finished.filter(Boolean)
 const finalTitles = new Set(ordered.map(s => s.title))
 const droppedSections = sections.map(s => s.title).filter(t => !finalTitles.has(t))
 if (droppedSections.length) log(`드롭된 섹션 ${droppedSections.length}개: ${droppedSections.join(', ')}`)
-const seen = new Set()
-const sources = []
-for (const r of researched.filter(Boolean)) {
-  for (const f of r.facts) {
-    const u = (f.source || '').trim()
-    if (u && !seen.has(u)) { seen.add(u); sources.push(u) }
-  }
-}
-const refList = sources.length
-  ? `\n## 출처\n\n${sources.map((u, i) => `${i + 1}. ${u}`).join('\n')}\n`
+
+const refList = sourceList.length
+  ? `\n## 출처\n\n${sourceList.map((u, i) => `[${i + 1}] ${u}`).join('\n')}\n`
   : ''
-const body = ordered.map(s => `## ${s.title}\n\n${s.markdown.trim()}\n`).join('\n')
+// 방어층: 작가가 중복으로 넣은 선두 섹션/문서 제목(H1·H2)을 제거한다(조립이 정규 H2를 붙이므로).
+const stripDupHeading = (md) => md.replace(/^\s*#{1,2}\s+.*(?:\r?\n|$)/, '').trim()
+const body = ordered.map(s => `## ${s.title}\n\n${stripDupHeading(s.markdown)}\n`).join('\n')
 const finalDoc = `# ${topic}\n\n${body}${refList}`
 
 const prose = finalDoc.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '')
 const s1hits = (prose.match(/[—;]/g) || []).length + (prose.match(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/gu) || []).length
-log(`완성: ${ordered.length}개 섹션, 출처 ${sources.length}건, 잔여 S1 후보 ${s1hits}건`)
+log(`완성: ${ordered.length}개 섹션, 출처 ${sourceList.length}건, 잔여 S1 후보 ${s1hits}건`)
 
-return { markdown: finalDoc, sections: ordered.length, sources }
+return { markdown: finalDoc, sections: ordered.length, sources: sourceList }

@@ -21,7 +21,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ---
-This project bundles `writing-korean-prose`, adapted from im-not-ai
-(Humanize KR, epoko77-ai, MIT). Its taxonomy draws on Korean translation-studies
+The Korean prose-correction rules embedded in the workflow are adapted from
+im-not-ai (Humanize KR, epoko77-ai, MIT) and draw on Korean translation-studies
 scholarship and KatFishNet (ACL 2025, arXiv:2503.00032). Pipeline structure is an
 homage to Claude Code's deep-research workflow.
