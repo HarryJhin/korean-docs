@@ -9,6 +9,18 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-06-24
+
+### Changed
+- `write-korean-docs` pre-flight 스킬을 `/deep-research`식 대화형 진입으로 전환
+  - JSON 옵션 폼(`{"topic":...,"audience":...}`) 핸드오프 제거 → 독자·톤을 주제 문장에 녹인 **자연어 문자열 한 줄**로 워크플로우에 전달(워크플로우 아웃라인 단계가 추출·추론)
+  - 진입 시 5필드 일괄 수집 대신 **주제 하나만 확정**, 모호할 때만 한두 가지 되물음
+  - `README.md`·`INSTALL.md`의 JSON 예시를 자연어 예시로 교체
+- 워크플로우 코드 변경 없음 — `korean-docs.js`는 이미 plain string args를 수용
+
+### Added
+- pre-flight 계약 회귀 방지 테스트(`test/skill.test.js`) — JSON 객체 핸드오프 지시 시 실패
+
 ## [0.1.2] - 2026-06-23
 
 ### Added
@@ -35,7 +47,8 @@
 - `/korean-docs` 워크플로우 — 리서치·사실검증·문체교정·자연스러움 검증 파이프라인
 - `write-korean-docs` pre-flight 스킬(트리거·비용 경고)
 
-[Unreleased]: https://github.com/HarryJhin/korean-docs/compare/korean-docs--v0.1.2...HEAD
+[Unreleased]: https://github.com/HarryJhin/korean-docs/compare/korean-docs--v0.1.3...HEAD
+[0.1.3]: https://github.com/HarryJhin/korean-docs/compare/korean-docs--v0.1.2...korean-docs--v0.1.3
 [0.1.2]: https://github.com/HarryJhin/korean-docs/compare/korean-docs--v0.1.1...korean-docs--v0.1.2
 [0.1.1]: https://github.com/HarryJhin/korean-docs/compare/korean-docs--v0.1.0...korean-docs--v0.1.1
 [0.1.0]: https://github.com/HarryJhin/korean-docs/releases/tag/korean-docs--v0.1.0

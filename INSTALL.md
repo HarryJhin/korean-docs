@@ -32,10 +32,10 @@ cp -R skills/write-korean-docs ~/.claude/skills/   # 선택: pre-flight 스킬
 /korean-docs JavaScript Array.prototype.flat() 메서드 레퍼런스
 ```
 
-독자·톤 등을 지정하려면 JSON으로 넘긴다:
+독자·톤 등을 지정하려면 JSON이 아니라 주제 문장에 그대로 녹여 넘긴다(`/deep-research`와 동일). 워크플로우가 아웃라인 단계에서 추출·추론한다:
 
 ```
-/korean-docs {"topic":"...","docType":"reference","audience":"...","tone":"..."}
+/korean-docs JavaScript Array.prototype.flat() 메서드 레퍼런스. 독자는 flat을 처음 쓰는 프론트 개발자, 톤은 간결한 레퍼런스체.
 ```
 
-`/workflows` UI에서 선택해 실행해도 된다. pre-flight 스킬을 깔았다면 "한글 레퍼런스 문서 만들어줘" 같은 자연어로도 진입한다(실행 전 파라미터를 묻고 비용을 고지한다).
+`/workflows` UI에서 선택해 실행해도 된다. pre-flight 스킬을 깔았다면 "한글 레퍼런스 문서 만들어줘" 같은 자연어로도 진입한다(주제가 모호하면 한두 가지만 되묻고 비용을 고지한다).
