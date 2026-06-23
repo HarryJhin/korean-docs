@@ -17,11 +17,25 @@ mkdir -p ~/.claude/workflows
 cp workflows/korean-docs.js ~/.claude/workflows/
 ```
 
-## 3. 실행
+## 3. (선택) pre-flight 트리거 스킬 배치
 
-Claude Code에서 `/korean-docs` 또는 Workflow 도구로 호출(`args`는 문자열이 아닌 객체로 넘긴다):
+자연어 발동 + 실행 전 파라미터(독자·톤) 수집 + 비용 경고를 원하면 스킬도 복사한다. 워크플로우 자체는 이 스킬 없이도 동작한다.
+
+```bash
+mkdir -p ~/.claude/skills
+cp -R skills/write-korean-docs ~/.claude/skills/
 ```
-Workflow({ name: "korean-docs", args: { topic: "...", docType: "reference", source: "..." } })
+
+## 4. 실행
+
+설치하면 `/korean-docs` 슬래시 커맨드가 자동 생성된다(`/deep-research`와 동일한 방식). 주제를 인자로 넘긴다:
 ```
+/korean-docs JavaScript Array.prototype.flat() 메서드 레퍼런스
+```
+독자·톤 등을 지정하려면 JSON으로 넘긴다:
+```
+/korean-docs {"topic":"...","docType":"reference","audience":"...","tone":"..."}
+```
+`/workflows` UI에서 선택해 실행해도 된다. 3의 스킬을 깔았다면 "한글 레퍼런스 문서 만들어줘" 같은 자연어로도 진입한다(실행 전 파라미터를 묻고 비용을 고지한다).
 
 #66032가 머지되면 `workflows/`를 플러그인 컴포넌트로 동봉해 `/plugin install`로 전환할 예정.
