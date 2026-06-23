@@ -1,0 +1,17 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+
+for (const f of ['fact-verifier', 'prose-editor', 'naturalness-reviewer']) {
+  test(`agent ${f} has frontmatter`, () => {
+    const t = readFileSync(new URL(`../agents/${f}.md`, import.meta.url), 'utf8')
+    assert.match(t, /^---/)
+    assert.match(t, /name:\s*\S+/)
+    assert.match(t, /description:\s*\S+/)
+  })
+}
+
+test('writing-korean-prose skill is bundled', () => {
+  const t = readFileSync(new URL('../skills/writing-korean-prose/SKILL.md', import.meta.url), 'utf8')
+  assert.match(t, /name:\s*writing-korean-prose/)
+})
