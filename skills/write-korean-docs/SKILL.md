@@ -1,6 +1,6 @@
 ---
 name: write-korean-docs
-description: Use when the user wants to generate a Korean technical reference document (.md) from a topic — the conversational entry guide to the korean-docs research → fact-check → prose workflow. If the topic is underspecified, ask 1-2 clarifying questions, then launch. 트리거 - 한글 기술문서 작성, 한글 레퍼런스 문서 생성, korean-docs 워크플로우 실행.
+description: Use when the user wants to generate a Korean technical reference document (.md) from a topic — the conversational entry guide to the korean-docs research → fact-check → prose workflow. If the topic is underspecified, ask 1-2 clarifying questions, then launch. 트리거 - 한글 기술문서 작성, 한글 레퍼런스 문서 생성·편집·개정, korean-docs 워크플로우 실행.
 ---
 
 # write-korean-docs (pre-flight)
@@ -18,6 +18,15 @@ description: Use when the user wants to generate a Korean technical reference do
 - 사용자가 독자·톤을 말했다면 받아 적되, **별도 필드로 분리하지 말고** 주제 문장에 자연스럽게 이어 붙인다(아래 §3). 명시 안 하면 워크플로우가 알아서 추론한다.
 
 > 현재 `docType`은 `reference`만 지원(MVP). 하우투·튜토리얼·설명은 후속.
+
+## 1.5 편집 모드 (기존 문서 개정)
+
+사용자가 **기존 `.md` 파일 경로 + "편집/개정/다듬어/갱신"** 의도를 주면 생성 대신 편집 모드로 간다.
+
+- 그 파일을 **Read**해서 본문 전체를 `existingDoc` 인자로, 경로를 `sourcePath` 인자로 워크플로우에 넘긴다. 워크플로우 스크립트는 파일시스템에 접근하지 못하므로, 파일을 읽어 args에 실어 주는 건 이 스킬의 몫이다.
+- 파일 본문은 슬래시 커맨드 문자열에 실을 수 없다(길다). 편집은 `/korean-docs` 자연어 한 줄이 아니라, 읽은 본문을 인자 객체로 실어 워크플로우를 띄우는 방식이다.
+- 주제를 따로 주지 않으면 워크플로우가 문서의 H1에서 주제를 추출한다. 범위를 좁히려면(특정 섹션만 등) 한두 가지만 되묻는다.
+- 편집도 전면 파이프라인이라 비용은 생성과 동등하다 — 아래 §2 비용 경고를 똑같이 적용한다.
 
 ## 2. 비용 경고 (필수)
 
@@ -47,3 +56,4 @@ description: Use when the user wants to generate a Korean technical reference do
 2. `lib/prose-checks.js`의 `proseScore`로 S1(em dash·이모지·세미콜론·이중피동) 클린 여부를 확인한다.
 3. **사실 정확성·출처 유효성은 사람이 검수한다** — 날조된 API·수치가 없는지, `[n]` 인용이 실제 출처와 맞는지.
 4. 워크플로우 로그의 "드롭된 섹션" 경고를 확인한다(누락 섹션 여부).
+5. **편집 모드 출력은 원본을 자동 덮어쓰지 않는다** — 개정본을 `{원본}.revised.md`로 저장하거나 diff를 보여주고, 원본 덮어쓰기는 사용자가 명시 확인한 뒤에만 한다. 워크플로우 로그의 "구조 재설계 드롭", "편집 완료 재사용/신규 카운트", "검증 탈락으로 사라진 원본 주장"을 검수 체크포인트로 확인한다.

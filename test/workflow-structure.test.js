@@ -57,3 +57,32 @@ test('gate3: sections with zero verified facts are dropped before drafting', () 
   assert.match(src, /\.filter\(r => \(r\.facts \|\| \[\]\)\.length > 0\)/, 'empty-fact sections filtered out')
   assert.match(src, /사실 0건으로 드롭된 섹션/, 'drop is logged')
 })
+
+// ── edit 모드 ──
+
+test('edit mode: accepts existingDoc and derives mode/topic', () => {
+  assert.match(src, /existingDoc/, 'existingDoc arg handled')
+  assert.match(src, /mode\s*===?\s*['"]edit['"]/, 'edit mode branch present')
+  assert.match(src, /extractTitleInline/, 'H1 topic extraction inlined')
+})
+
+test('edit mode: ingest helpers are inlined (no lib import)', () => {
+  assert.match(src, /splitSectionsInline/, 'section splitter inlined')
+  assert.match(src, /parseSourcesInline/, 'source parser inlined')
+  assert.ok(!/\bimport\s/.test(src), 'still no import after inlining')
+})
+
+test('edit mode: outline reconciles existing structure (fromExisting tag)', () => {
+  assert.match(src, /fromExisting/, 'sections carry an optional fromExisting mapping')
+  assert.match(src, /드롭|재설계|reconcil/i, 'unmapped existing sections are reconciled/logged')
+})
+
+test('edit mode: existing claims are extracted and re-verified (not blind-copied)', () => {
+  assert.match(src, /fromExisting/, 'reused sections detected by fromExisting')
+  assert.match(src, /extract:/i, 'a claim-extraction agent runs for reused sections')
+  assert.match(src, /existingSourceMap/, 'extracted claims resolve their source from the existing source map')
+})
+
+test('edit mode: draft seeds reused sections with original prose', () => {
+  assert.match(src, /기존 본문|표현·구성|seed/i, 'original prose passed to drafter as a preservation seed')
+})

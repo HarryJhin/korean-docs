@@ -26,3 +26,9 @@ test('pre-flight skill hands off natural language, not a JSON-options form (deep
     'must not instruct a JSON-object args handoff like {"topic":...}',
   )
 })
+
+test('pre-flight skill documents the edit branch', () => {
+  assert.ok(/편집|개정/.test(skill), 'mentions editing/revision')
+  assert.ok(skill.includes('existingDoc'), 'explains passing existing doc content as args')
+  assert.ok(/덮어쓰|revised|diff/i.test(skill), 'states the no-overwrite output policy')
+})

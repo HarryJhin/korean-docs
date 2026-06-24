@@ -20,9 +20,52 @@ if (typeof input === 'string') {
   else { input = { topic: s } }
 }
 const req = input || {}
-const topic = (req.topic || '').trim()
+const existingDoc = (req.existingDoc || '').trim()
+const sourcePath = (req.sourcePath || '').trim()
+const mode = existingDoc ? 'edit' : 'generate'
 const docType = req.docType || 'reference'
-if (!topic) throw new Error('args.topic 필요 (생성할 문서 주제)')
+
+// ── 인라인 인제스트 (lib/ingest.js와 동일 로직 복제 — 자기완결, 동기화 대상) ──
+const SOURCE_HEADING_INLINE = /^##\s+(출처|references)\s*$/i
+const extractTitleInline = (md) => {
+  const m = (md || '').match(/^#\s+(.+)$/m)
+  return m ? m[1].trim() : null
+}
+const splitSectionsInline = (md) => {
+  const lines = (md || '').split(/\r?\n/)
+  const out = []
+  let cur = null, inSrc = false
+  for (const line of lines) {
+    const h2 = line.match(/^##\s+(.+?)\s*$/)
+    if (h2) {
+      if (cur) out.push(cur)
+      if (SOURCE_HEADING_INLINE.test(line)) { inSrc = true; cur = null; continue }
+      inSrc = false; cur = { title: h2[1].trim(), body: [] }; continue
+    }
+    if (cur && !inSrc) cur.body.push(line)
+  }
+  if (cur) out.push(cur)
+  return out.map(s => ({ title: s.title, markdown: s.body.join('\n').trim() }))
+}
+const parseSourcesInline = (md) => {
+  const m = new Map()
+  let inSrc = false
+  for (const line of (md || '').split(/\r?\n/)) {
+    if (/^##\s+/.test(line)) { inSrc = SOURCE_HEADING_INLINE.test(line); continue }
+    if (!inSrc) continue
+    const mm = line.match(/^\[(\d+)\]\s+(\S.*?)\s*$/)
+    if (mm) m.set(Number(mm[1]), mm[2].trim())
+  }
+  return m
+}
+
+let topic = (req.topic || '').trim()
+if (!topic && mode === 'edit') topic = extractTitleInline(existingDoc) || ''
+if (!topic) throw new Error('args.topic 또는 args.existingDoc 필요 (생성·편집 대상)')
+
+const existingSections = mode === 'edit' ? splitSectionsInline(existingDoc) : []
+const existingSourceMap = mode === 'edit' ? parseSourcesInline(existingDoc) : new Map()
+log(`모드: ${mode}${mode === 'edit' ? ` · 기존 섹션 ${existingSections.length}개` : ''}`)
 
 // ── 인라인 스키마 (런타임 자기완결) ──
 const OUTLINE_SCHEMA = {
@@ -32,13 +75,16 @@ const OUTLINE_SCHEMA = {
     audience: { type: 'string' },
     tone: { type: 'string' },
     sections: { type: 'array', items: { type: 'object', required: ['title', 'researchQuestions'],
-      properties: { title: { type: 'string' }, researchQuestions: { type: 'array', items: { type: 'string' } } } } },
+      properties: { title: { type: 'string' }, researchQuestions: { type: 'array', items: { type: 'string' } },
+        fromExisting: { type: 'string' } } } },
   },
 }
 const FACT_SCHEMA = { type: 'object', required: ['facts'], properties: { facts: { type: 'array',
   items: { type: 'object', required: ['claim', 'source'], properties: { claim: { type: 'string' }, source: { type: 'string' } } } } } }
 const FACT_VERDICT_SCHEMA = { type: 'object', required: ['verified', 'reason'],
   properties: { verified: { type: 'boolean' }, reason: { type: 'string' } } }
+const EXTRACT_SCHEMA = { type: 'object', required: ['claims'], properties: { claims: { type: 'array',
+  items: { type: 'object', required: ['claim'], properties: { claim: { type: 'string' }, citation: { type: 'number' } } } } } }
 const SECTION_SCHEMA = { type: 'object', required: ['title', 'markdown'],
   properties: { title: { type: 'string' }, markdown: { type: 'string' } } }
 const NATURALNESS_VERDICT_SCHEMA = { type: 'object', required: ['pass', 'fidelityOk', 'issues'],
@@ -88,6 +134,12 @@ const outline = await agent(
   (req.source ? `참고 소스:\n${req.source}\n` : '') +
   (req.audience ? `지정 독자: ${req.audience}\n` : '') +
   (req.tone ? `지정 톤앤매너: ${req.tone}\n` : '') +
+  (mode === 'edit'
+    ? `\n[편집 모드] 아래는 개정 대상 기존 문서의 섹션들이다. 이상적 레퍼런스 구조를 새로 설계하되, ` +
+      `각 신규 섹션이 기존 섹션에서 유래하면 그 기존 제목을 fromExisting에 적는다(없으면 생략). ` +
+      `기존에 없던 새 섹션은 fromExisting 없이 둔다.\n기존 섹션:\n` +
+      existingSections.map(s => `- ${s.title}`).join('\n') + '\n'
+    : '') +
   `다음을 정한다:\n` +
   `- audience: 이 문서를 읽는 구체적 독자(지정값이 있으면 그대로). 예: "REST API를 처음 쓰는 백엔드 개발자"\n` +
   `- tone: 톤앤매너(지정값이 있으면 그대로). 예: "간결하고 중립적인 레퍼런스체, 군더더기 없이"\n` +
@@ -95,6 +147,11 @@ const outline = await agent(
   { schema: OUTLINE_SCHEMA, label: 'scope:outline' }
 )
 const sections = outline.sections || []
+if (mode === 'edit') {
+  const kept = new Set(sections.map(s => s.fromExisting).filter(Boolean))
+  const droppedExisting = existingSections.map(s => s.title).filter(t => !kept.has(t))
+  if (droppedExisting.length) log(`구조 재설계: 기존 섹션 ${droppedExisting.length}개 드롭 — ${droppedExisting.join(', ')}`)
+}
 const audience = (req.audience || outline.audience || '기술 실무자').trim()
 const tone = (req.tone || outline.tone || '간결하고 정확한 레퍼런스체').trim()
 log(`아웃라인 ${sections.length}개 섹션 · 독자: ${audience}`)
@@ -102,12 +159,34 @@ log(`아웃라인 ${sections.length}개 섹션 · 독자: ${audience}`)
 // ── 2~3. 섹션별 리서치 → 사실 적대 검증 (pipeline, 배리어 없음) ──
 const researched = await pipeline(
   sections,
-  (section) => agent(
-    `너는 기술 사실 조사자다. 목표: 검증 가능한 출처로 뒷받침되는 사실만 모은다.\n` +
-    `다음 리서치 질문들에 대해 웹·공식 문서를 조사해 사실을 수집한다. 각 사실에 출처 URL을 단다. 확인 안 되면 포함하지 말 것(날조 금지).\n` +
-    `섹션: ${section.title}\n질문:\n${(section.researchQuestions || []).map(q => '- ' + q).join('\n')}`,
-    { schema: FACT_SCHEMA, label: `research:${section.title}`, phase: '리서치' }
-  ).then(r => ({ section, facts: r.facts || [] })),
+  async (section) => {
+    const researched = await agent(
+      `너는 기술 사실 조사자다. 목표: 검증 가능한 출처로 뒷받침되는 사실만 모은다.\n` +
+      `다음 리서치 질문들에 대해 웹·공식 문서를 조사해 사실을 수집한다. 각 사실에 출처 URL을 단다. 확인 안 되면 포함하지 말 것(날조 금지).\n` +
+      `섹션: ${section.title}\n질문:\n${(section.researchQuestions || []).map(q => '- ' + q).join('\n')}`,
+      { schema: FACT_SCHEMA, label: `research:${section.title}`, phase: '리서치' }
+    )
+    let facts = researched.facts || []
+    if (mode === 'edit' && section.fromExisting) {
+      const orig = existingSections.find(s => s.title === section.fromExisting)
+      if (orig && orig.markdown) {
+        const extracted = await agent(
+          `너는 기술 문서에서 검증 가능한 사실 주장만 뽑아내는 추출기다. 아래 기존 섹션 본문에서 ` +
+          `사실 주장을 추출한다. 각 주장에 본문의 인용 번호 [n]이 달려 있으면 그 숫자를 citation에 적는다(없으면 생략). ` +
+          `의견·서술·예시 설명이 아니라 검증 가능한 기술적 사실만.\n\n${orig.markdown}`,
+          { schema: EXTRACT_SCHEMA, label: `extract:${section.title}`, phase: '리서치' }
+        )
+        let unsourcedDropped = 0
+        for (const c of (extracted.claims || [])) {
+          const src = c.citation != null ? (existingSourceMap.get(c.citation) || '') : ''
+          if (!src) { unsourcedDropped++; continue }
+          facts.push({ claim: c.claim, source: src, _origin: 'existing' })
+        }
+        if (unsourcedDropped) log(`${section.title}: 출처 없는 원본 주장 ${unsourcedDropped}건 기각(검증 전)`)
+      }
+    }
+    return { section, facts }
+  },
   async (r) => {
     const verified = []
     for (const fact of r.facts) {
@@ -124,6 +203,11 @@ const researched = await pipeline(
         )
       ))
       if (votes.filter(Boolean).filter(v => v.verified).length >= 2) verified.push(fact)
+    }
+    if (mode === 'edit') {
+      const exCand = r.facts.filter(f => f._origin === 'existing').length
+      const exKept = verified.filter(f => f._origin === 'existing').length
+      if (exCand) log(`${r.section.title}: 원본 주장 ${exKept}/${exCand} 검증 통과(${exCand - exKept}건 탈락 드롭)`)
     }
     log(`${r.section.title}: 사실 ${verified.length}/${r.facts.length} 확정`)
     return { section: r.section, facts: verified }
@@ -156,6 +240,9 @@ const finished = await pipeline(
     `구성·마크다운 규칙:\n${MARKDOWN_RULES}\n` +
     `인용: 사실을 본문에 쓸 때 해당 출처 번호를 [n] 형태로 문장 끝에 단다(예: "기본값은 0이다 [2]"). 출처 목록·참고문헌은 본문에 만들지 마라 — [n] 인라인 인용만 달고, 출처 목록은 조립 단계가 붙인다.\n` +
     `사실에 없는 내용 추가 금지. 부족하면 '출처 필요'로 표시.\n` +
+    ((mode === 'edit' && r.section.fromExisting)
+      ? `기존 본문(표현·구성을 사실이 보존되는 한 최대한 유지하되, 확정 사실에 없는 내용은 버린다. 이 기존 본문에 박힌 옛 인용번호 [n]은 무시하고, 위 '확정 사실'의 번호만 사용한다):\n${(existingSections.find(s => s.title === r.section.fromExisting) || {}).markdown || ''}\n`
+      : '') +
     `섹션 제목: ${r.section.title}\n확정 사실(번호=출처):\n${r.facts.map(f => `- [${cite(f.source)}] ${f.claim} (출처: ${f.source})`).join('\n') || '(없음)'}`,
     { schema: SECTION_SCHEMA, label: `draft:${r.section.title}`, phase: '초안' }
   ).then(s => ({ ...r, draft: s })),
@@ -202,6 +289,11 @@ const finished = await pipeline(
 // ── 7. 조립 ──
 phase('조립')
 const ordered = finished.filter(Boolean)
+if (mode === 'edit') {
+  const reusedCount = sections.filter(s => s.fromExisting).length
+  const newCount = sections.length - reusedCount
+  log(`편집 완료: 재사용 요청 ${reusedCount} · 신규 ${newCount} · 최종 ${ordered.length}개 섹션(보존 여부는 섹션별 '원본 주장 N/M' 로그 참조)`)
+}
 const finalTitles = new Set(ordered.map(s => s.title))
 const droppedSections = sections.map(s => s.title).filter(t => !finalTitles.has(t))
 if (droppedSections.length) log(`드롭된 섹션 ${droppedSections.length}개: ${droppedSections.join(', ')}`)
