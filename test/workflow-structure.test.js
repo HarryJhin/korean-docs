@@ -178,3 +178,11 @@ test('global-barrier: end-to-end structural invariants', () => {
   assert.ok(!/\bimport\s/.test(src) && !/\brequire\(/.test(src), 'still self-contained')
   assert.ok(!/Date\.now|Math\.random/.test(src), 'no forbidden APIs')
 })
+
+test('caps: per-section verify cap replaces global verify cap', () => {
+  assert.match(src, /const MAX_VERIFY_PER_SECTION = 5/, 'per-section verify cap present')
+  assert.match(src, /const MAX_SEARCH_ANGLES =/, 'search angle cap present')
+  assert.match(src, /const MAX_FETCH =/, 'fetch cap present')
+  assert.match(src, /const MAX_SALVAGE_FETCH =/, 'salvage fetch cap present')
+  assert.ok(!/MAX_VERIFY_TOTAL/.test(src), 'global verify cap removed')
+})
